@@ -1,0 +1,55 @@
+{
+    "name": "ephpm/octane-driver",
+    "description": "Laravel Octane server driver so a Laravel app runs under ePHPm persistent worker mode.",
+    "type": "library",
+    "license": "MIT",
+    "homepage": "https://github.com/ephpm/octane-driver",
+    "keywords": [
+        "ephpm",
+        "laravel",
+        "octane",
+        "worker"
+    ],
+    "authors": [
+        {
+            "name": "ePHPm"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "ephpm/worker": "^0.1",
+        "laravel/octane": "^2.0",
+        "laravel/framework": "^10 || ^11",
+        "symfony/http-foundation": "^6 || ^7"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10"
+    },
+    "autoload": {
+        "psr-4": {
+            "Ephpm\\Octane\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Ephpm\\Octane\\Tests\\": "tests/"
+        }
+    },
+    "bin": [
+        "bin/ephpm-octane-worker"
+    ],
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/ephpm/php-worker"
+        }
+    ],
+    "config": {
+        "sort-packages": true
+    },
+    "extra": {
+        "ephpm": {
+            "comment": "The `repositories` VCS entry resolves ephpm/worker from its GitHub repo (tag v0.1.0) until it is registered on Packagist. Remove that entry once ephpm/worker is published to Packagist."
+        }
+    }
+}

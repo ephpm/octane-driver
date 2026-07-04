@@ -1,0 +1,131 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * ephpm-octane-worker — Laravel Octane worker entrypoint for ePHPm worker mode.
+ *
+ * ePHPm launches this script for each persistent worker (point
+ * `[php] worker_script` at it). It:
+ *
+ *   1. locates the project's Composer autoloader (upward search from CWD),
+ *   2. locates the Laravel `bootstrap/app.php` (upward search, or EPHPM_APP_BASE),
+ *   3. asserts ePHPm worker primitives are available,
+ *   4. boots an Octane {@see \Laravel\Octane\Worker} with our {@see EphpmClient},
+ *   5. loops on take_request(), handing each request to Octane, until shutdown.
+ *
+ * We drive Octane's engine-neutral Worker directly rather than going through
+ * `php artisan octane:start --server=ephpm`, because the artisan command needs a
+ * full ServerProcessInspector + ServerStateFile contract (process supervision,
+ * PID/state files) that ePHPm — which supervises workers itself — does not
+ * provide. That deeper integration is a documented follow-up; see README.md.
+ */
+
+use Ephpm\Octane\EphpmClient;
+use Ephpm\Worker\Runtime;
+use Laravel\Octane\ApplicationFactory;
+use Laravel\Octane\RequestContext;
+use Laravel\Octane\Worker;
+
+exit((static function (array $argv): int {
+    // --- 1. Locate the Composer autoloader (search upward from CWD & script). -
+    $autoload = null;
+    $seeds = [\getcwd() ?: __DIR__, __DIR__];
+    foreach ($seeds as $seed) {
+        $dir = $seed;
+        while (true) {
+            $candidate = $dir . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
+            if (\is_file($candidate)) {
+                $autoload = $candidate;
+                break 2;
+            }
+            $parent = \dirname($dir);
+            if ($parent === $dir) {
+                break; // reached filesystem root
+            }
+            $dir = $parent;
+        }
+    }
+
+    if ($autoload === null) {
+        \fwrite(STDERR, "ephpm-octane-worker: could not locate vendor/autoload.php (run composer install).\n");
+
+        return 1;
+    }
+
+    require $autoload;
+
+    // --- 2. Fail fast if not under ePHPm worker mode. ------------------------
+    Runtime::assertAvailable();
+
+    // --- 3. Locate the Laravel app base (dir containing bootstrap/app.php). ---
+    $basePath = ephpm_octane_locate_base($argv[1] ?? \getenv('EPHPM_APP_BASE') ?: null);
+    if ($basePath === null) {
+        \fwrite(
+            STDERR,
+            "ephpm-octane-worker: could not locate bootstrap/app.php.\n"
+            . "Pass the Laravel base path as an argument or set EPHPM_APP_BASE.\n",
+        );
+
+        return 1;
+    }
+
+    // --- 4. Boot Octane's engine-neutral worker with our client. -------------
+    $client = new EphpmClient();
+    $worker = new Worker(new ApplicationFactory($basePath), $client);
+    $worker->boot();
+
+    // --- 5. Worker loop. -----------------------------------------------------
+    while (($envelope = \Ephpm\Worker\take_request()) !== null) {
+        $context = new RequestContext(['envelope' => $envelope]);
+
+        try {
+            [$request] = $client->marshalRequest($context);
+            $worker->handle($request, $context);
+        } catch (\Throwable $e) {
+            // Last-resort guard: a failure BEFORE/OUTSIDE Octane's own handler
+            // (e.g. marshalling) must still produce a response and must not kill
+            // the loop. Octane's Worker::handle() routes app-level throwables to
+            // $client->error() internally, so this path is for pre-handle faults.
+            \Ephpm\Worker\send_response(
+                500,
+                ['Content-Type' => 'text/plain'],
+                'Internal Server Error',
+            );
+        }
+    }
+
+    $worker->terminate();
+
+    return 0;
+})($argv));
+
+/**
+ * Resolve the Laravel base path (the directory that contains bootstrap/app.php).
+ *
+ * Resolution order:
+ *   1. an explicit hint (CLI arg / EPHPM_APP_BASE) — used verbatim if valid,
+ *   2. an upward search from the current working directory.
+ */
+function ephpm_octane_locate_base(?string $hint): ?string
+{
+    if ($hint !== null && $hint !== '') {
+        $candidate = \rtrim($hint, DIRECTORY_SEPARATOR);
+        if (\is_file($candidate . DIRECTORY_SEPARATOR . 'bootstrap' . DIRECTORY_SEPARATOR . 'app.php')) {
+            return $candidate;
+        }
+    }
+
+    $dir = \getcwd() ?: __DIR__;
+    while (true) {
+        if (\is_file($dir . DIRECTORY_SEPARATOR . 'bootstrap' . DIRECTORY_SEPARATOR . 'app.php')) {
+            return $dir;
+        }
+        $parent = \dirname($dir);
+        if ($parent === $dir) {
+            return null;
+        }
+        $dir = $parent;
+    }
+}
