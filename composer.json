@@ -19,7 +19,7 @@
         "php": "^8.2",
         "ephpm/worker": "^0.1",
         "laravel/octane": "^2.0",
-        "laravel/framework": "^10 || ^11",
+        "laravel/framework": "^10 || ^11 || ^12",
         "symfony/http-foundation": "^6 || ^7"
     },
     "require-dev": {

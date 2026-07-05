@@ -28,7 +28,7 @@ use Laravel\Octane\ApplicationFactory;
 use Laravel\Octane\RequestContext;
 use Laravel\Octane\Worker;
 
-exit((static function (array $argv): int {
+exit((static function (array $args): int {
     // --- 1. Locate the Composer autoloader (search upward from CWD & script). -
     $autoload = null;
     $seeds = [\getcwd() ?: __DIR__, __DIR__];
@@ -60,7 +60,7 @@ exit((static function (array $argv): int {
     Runtime::assertAvailable();
 
     // --- 3. Locate the Laravel app base (dir containing bootstrap/app.php). ---
-    $basePath = ephpm_octane_locate_base($argv[1] ?? \getenv('EPHPM_APP_BASE') ?: null);
+    $basePath = ephpm_octane_locate_base($args[1] ?? \getenv('EPHPM_APP_BASE') ?: null);
     if ($basePath === null) {
         \fwrite(
             STDERR,
@@ -72,9 +72,23 @@ exit((static function (array $argv): int {
     }
 
     // --- 4. Boot Octane's engine-neutral worker with our client. -------------
+    // Boot happens ONCE per worker. If it throws (misconfig, a missing PHP
+    // function, an unbootable app), the process would otherwise die with no
+    // diagnostic and the pool would respawn it into a silent crash-loop. Log the
+    // throwable so the failure is visible, then exit non-zero.
     $client = new EphpmClient();
-    $worker = new Worker(new ApplicationFactory($basePath), $client);
-    $worker->boot();
+    try {
+        $worker = new Worker(new ApplicationFactory($basePath), $client);
+        $worker->boot();
+    } catch (\Throwable $e) {
+        \error_log(
+            'ephpm-octane-worker: framework boot failed: '
+            . $e::class . ': ' . $e->getMessage()
+            . ' @ ' . $e->getFile() . ':' . $e->getLine(),
+        );
+
+        return 1;
+    }
 
     // --- 5. Worker loop. -----------------------------------------------------
     while (($envelope = \Ephpm\Worker\take_request()) !== null) {
@@ -88,18 +102,38 @@ exit((static function (array $argv): int {
             // (e.g. marshalling) must still produce a response and must not kill
             // the loop. Octane's Worker::handle() routes app-level throwables to
             // $client->error() internally, so this path is for pre-handle faults.
-            \Ephpm\Worker\send_response(
-                500,
-                ['Content-Type' => 'text/plain'],
-                'Internal Server Error',
+            //
+            // Exactly-once protocol: if the client already answered this request
+            // (a throwable escaped AFTER respond()/error() ran), sending again
+            // would desync the worker protocol — so only send the fallback 500
+            // when nothing has been sent yet.
+            if (!$client->hasResponded()) {
+                \Ephpm\Worker\send_response(
+                    500,
+                    ['Content-Type' => 'text/plain'],
+                    'Internal Server Error',
+                );
+            }
+            \error_log(
+                'ephpm-octane-worker: request failed: '
+                . $e::class . ': ' . $e->getMessage()
+                . ' @ ' . $e->getFile() . ':' . $e->getLine(),
             );
+        } finally {
+            // Remove any multipart-upload temp files spooled while marshalling
+            // this request (also runs when marshalling itself threw).
+            EphpmClient::cleanupRequestTempFiles();
         }
     }
 
     $worker->terminate();
 
     return 0;
-})($argv));
+    // $argv only exists under the CLI SAPI. Under the ePHPm engine (the normal
+    // way this script runs) there is no CLI argv — fall back to an empty list
+    // so the closure's array type is satisfied and EPHPM_APP_BASE / upward
+    // search drive base-path resolution instead.
+})(isset($argv) && \is_array($argv) ? $argv : []));
 
 /**
  * Resolve the Laravel base path (the directory that contains bootstrap/app.php).
