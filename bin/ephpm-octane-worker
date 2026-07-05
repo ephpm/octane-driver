@@ -28,7 +28,7 @@ use Laravel\Octane\ApplicationFactory;
 use Laravel\Octane\RequestContext;
 use Laravel\Octane\Worker;
 
-exit((static function (array $argv): int {
+exit((static function (array $args): int {
     // --- 1. Locate the Composer autoloader (search upward from CWD & script). -
     $autoload = null;
     $seeds = [\getcwd() ?: __DIR__, __DIR__];
@@ -60,7 +60,7 @@ exit((static function (array $argv): int {
     Runtime::assertAvailable();
 
     // --- 3. Locate the Laravel app base (dir containing bootstrap/app.php). ---
-    $basePath = ephpm_octane_locate_base($argv[1] ?? \getenv('EPHPM_APP_BASE') ?: null);
+    $basePath = ephpm_octane_locate_base($args[1] ?? \getenv('EPHPM_APP_BASE') ?: null);
     if ($basePath === null) {
         \fwrite(
             STDERR,
@@ -129,7 +129,11 @@ exit((static function (array $argv): int {
     $worker->terminate();
 
     return 0;
-})($argv));
+    // $argv only exists under the CLI SAPI. Under the ePHPm engine (the normal
+    // way this script runs) there is no CLI argv — fall back to an empty list
+    // so the closure's array type is satisfied and EPHPM_APP_BASE / upward
+    // search drive base-path resolution instead.
+})(isset($argv) && \is_array($argv) ? $argv : []));
 
 /**
  * Resolve the Laravel base path (the directory that contains bootstrap/app.php).
