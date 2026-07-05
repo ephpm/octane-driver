@@ -19,17 +19,23 @@ Create `ephpm.toml` at the project root:
 
 ```toml
 [server]
-listen = "0.0.0.0:8080"
+listen        = "0.0.0.0:8080"
+document_root = "."               # the Laravel project root
 
 [php]
 mode          = "worker"
 worker_script = "vendor/bin/ephpm-octane-worker"
-document_root = "public"          # Laravel's public/ directory
-# worker_args = ["/srv/app"]      # optional: pin the app base (dir with bootstrap/app.php)
+worker_count  = 1                 # raise for more concurrency
+# EPHPM_APP_BASE=/srv/app         # optional env: pin the app base (dir with bootstrap/app.php)
 ```
 
-`document_root = "public"` lets ePHPm serve Laravel's static assets directly
-(and route everything else to `public/index.php`'s equivalent worker path).
+`worker_script` must resolve **under** `document_root` (ePHPm rejects a script
+that escapes the root), so `document_root` is the project root — which contains
+`vendor/` — not `public/`. In worker mode every non-static request is routed to
+the worker entrypoint, which boots Laravel and lets *its* router handle the URL;
+you do not point `document_root` at `public/` the way php-fpm would. Run ePHPm
+with its working directory at the project root (or set `EPHPM_APP_BASE`) so the
+worker can locate `vendor/autoload.php` and `bootstrap/app.php`.
 
 ## 3. Start the server
 

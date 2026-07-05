@@ -83,17 +83,24 @@ inspector + state file) is a **documented follow-up**, not part of this release.
 
 **Request** (`EphpmClient::marshalRequest`): reads the `Ephpm\Worker\Envelope`
 out of Octane's `RequestContext->data['envelope']`, builds a
-`Symfony\Component\HttpFoundation\Request` from the envelope's
-server/query/body/cookies/files/raw-body, then lifts it with
-`Illuminate\Http\Request::createFromBase()`. Mirroring Octane's Swoole converter,
-a form-urlencoded body on `PUT`/`PATCH`/`DELETE` is parsed out of the raw body
-and injected into the request parameter bag (PHP only does this automatically for
-`POST`).
+`Symfony\Component\HttpFoundation\Request`, then lifts it with
+`Illuminate\Http\Request::createFromBase()`. The engine hands over raw material
+only — `Envelope::parsedBody()` is always `null`, `files()` is always empty, and
+`query()`/`cookies()` are not url-decoded — so the driver does the parsing
+itself: the query string is re-parsed with `parse_str()` (url-decodes, handles
+`a[]=`), cookie names/values are url-decoded, `application/x-www-form-urlencoded`
+bodies are parsed for `POST`/`PUT`/`PATCH`/`DELETE`, and `multipart/form-data`
+bodies are parsed into fields plus uploaded files (spooled to temp files that are
+unlinked after the request).
 
 **Response** (`EphpmClient::respond`): prepends Octane's captured `$outputBuffer`
-(anything echoed outside the `Response`) to the body, flattens
-`allPreserveCaseWithoutCookies()` headers to `['Name' => 'v1, v2']`, appends a
-`Set-Cookie` line per queued cookie, then calls `send_response()`.
+(anything echoed outside the `Response`) to the body and flattens
+`allPreserveCaseWithoutCookies()` headers to `['Name' => 'v1, v2']`. Queued
+cookies are sent as a **list** under `Set-Cookie`
+(`['Set-Cookie' => [$c1, $c2]]`) so the engine emits one wire header per cookie —
+comma-joining would corrupt `expires=` attributes. Buffered responses go through
+`send_response()`; `StreamedResponse` / `BinaryFileResponse` are streamed through
+`send_response_stream()` (see below).
 
 **Error** (`EphpmClient::error`): emits a generic `500 Internal Server Error`
 without leaking the exception (your app's logging surfaces the detail).
@@ -107,11 +114,14 @@ inside it at `data['envelope']`. This package also ships a thin, strongly-typed
 used by the worker loop and tests — see its class docs for the deviation
 rationale.
 
-## Streaming caveat
+## Streaming
 
-The request body is buffered as a string (`Envelope::rawBody()`), and the
-response body is fully materialised before it is sent. True request/response
-streaming is a later ePHPm engine phase.
+Streaming **responses** are supported: `BinaryFileResponse` is streamed straight
+from its file, and `StreamedResponse` output is captured into a `php://temp`
+stream (PHP spools it to disk past ~2 MB, keeping memory flat) — both are sent
+via `send_response_stream()`, which the engine forwards in 64 KB chunks with
+backpressure. The **request** body is still buffered as a string
+(`Envelope::rawBody()`).
 
 ## Status
 
