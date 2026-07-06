@@ -16,8 +16,31 @@ This package implements Octane's engine-neutral
 
 ## Install
 
+ePHPm packages are distributed via their GitHub repositories (not Packagist).
+Add every ePHPm repo in the dependency tree as a Composer `vcs` repository, then
+require the driver. This package pulls in `ephpm/worker`, so **both** repos are
+listed — Composer does **not** resolve a VCS dependency's own VCS repositories
+transitively, so each ePHPm package in the tree needs its own `repositories`
+entry in your app's `composer.json`.
+
+```json
+{
+  "repositories": [
+    { "type": "vcs", "url": "https://github.com/ephpm/octane-driver" },
+    { "type": "vcs", "url": "https://github.com/ephpm/php-worker" }
+  ],
+  "require": {
+    "ephpm/octane-driver": "^0.1"
+  }
+}
+```
+
+Both `ephpm/octane-driver` and its `ephpm/worker` dependency are tagged
+`v0.1.0`, so `^0.1` resolves for each; each still needs its own `repositories`
+entry because Composer does not resolve VCS repos transitively. Then:
+
 ```bash
-composer require ephpm/octane-driver
+composer update
 ```
 
 You also need Laravel Octane installed and published in your app:
@@ -26,11 +49,6 @@ You also need Laravel Octane installed and published in your app:
 composer require laravel/octane
 php artisan octane:install
 ```
-
-> **Note (pre-Packagist):** until `ephpm/worker` is published on Packagist, this
-> package resolves that dependency from its GitHub repository (tag `v0.1.0`) via
-> the Composer `repositories` VCS entry declared in `composer.json`. Remove that
-> block once `ephpm/worker` is on Packagist.
 
 ## Wiring it into ePHPm
 
