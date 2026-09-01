@@ -52,14 +52,24 @@ php artisan octane:install
 
 ## Wiring it into ePHPm
 
-Point ePHPm at the worker entrypoint, switch on worker mode, and set the document
-root to Laravel's `public/` directory in `ephpm.toml`:
+Set the document root to Laravel's `public/` directory, switch on worker mode,
+and point ePHPm at the worker entrypoint in `ephpm.toml`. Note that
+`document_root` lives under `[server]`, and `worker_script` is resolved
+relative to the document root and **must be a file under it** (ePHPm's config
+validation enforces this). Laravel keeps `vendor/` outside `public/`, so copy
+the entrypoint into the document root first:
+
+```bash
+cp vendor/ephpm/octane-driver/bin/ephpm-octane-worker public/ephpm-octane-worker.php
+```
 
 ```toml
+[server]
+document_root = "public"          # Laravel's public/ directory
+
 [php]
 mode          = "worker"
-worker_script = "vendor/bin/ephpm-octane-worker"
-document_root = "public"          # Laravel's public/ directory
+worker_script = "ephpm-octane-worker.php"   # relative to document_root
 ```
 
 Then start the server:
@@ -68,22 +78,28 @@ Then start the server:
 ephpm serve
 ```
 
-`bin/ephpm-octane-worker` finds your project's `vendor/autoload.php` and your
-Laravel `bootstrap/app.php` (searching upward from the working directory, or from
-`EPHPM_APP_BASE` / the first CLI argument), boots an Octane worker with our
+(The copy works unmodified: ePHPm skips the script's shebang line, and the
+entrypoint locates your project's `vendor/autoload.php` by searching upward
+from its own directory.)
+
+The entrypoint finds your project's `vendor/autoload.php` and your Laravel
+`bootstrap/app.php` (searching upward from the working directory, or from the
+`EPHPM_APP_BASE` environment variable), boots an Octane worker with our
 `EphpmClient`, and runs the request loop until ePHPm signals shutdown.
 
 ### Locating the app base
 
-If autodetection picks the wrong directory (e.g. nested projects), pin it:
+If autodetection picks the wrong directory (e.g. nested projects), pin it with
+the `EPHPM_APP_BASE` environment variable on the ePHPm server process:
 
-```toml
-[php]
-mode          = "worker"
-worker_script = "vendor/bin/ephpm-octane-worker"
-worker_args   = ["/srv/app"]      # dir containing bootstrap/app.php
-# or set the EPHPM_APP_BASE environment variable
+```bash
+EPHPM_APP_BASE=/srv/app ephpm serve   # /srv/app contains bootstrap/app.php
 ```
+
+There is no config knob for passing arguments to a worker script — the
+entrypoint's optional CLI argument only applies when you run it by hand under
+`php` for debugging; under the engine there is no `$argv`, so use
+`EPHPM_APP_BASE` (or rely on the upward search).
 
 ## Why `ephpm serve`, not `octane:start --server=ephpm`
 
