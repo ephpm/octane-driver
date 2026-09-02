@@ -14,6 +14,9 @@ This package implements Octane's engine-neutral
 `Illuminate\Http\Request` and each Octane response back into ePHPm's
 `send_response()` primitive.
 
+Compatible with Laravel 10–13 (Octane 2.x, Symfony HttpFoundation 6–8) on
+PHP 8.2+.
+
 ## Install
 
 ePHPm packages are distributed via their GitHub repositories (not Packagist).
