@@ -208,6 +208,72 @@ final class EphpmClientTest extends TestCase
         self::assertFileDoesNotExist($tmpPath);
     }
 
+    /**
+     * Multiple files posted under one `name="photos[]"` field must NOT collapse
+     * last-wins under the literal key `photos[]` — PHP builds the pivoted
+     * `$_FILES['photos']['name'][0..1]` shape, which Symfony's FileBag turns into
+     * a LIST of UploadedFile instances. A sibling scalar `name="avatar"` upload
+     * keeps its single-file shape.
+     */
+    public function testToSymfonyRequestParsesArrayOfFiles(): void
+    {
+        $boundary = 'XxMULTIxX';
+        $body = self::filePart($boundary, 'photos[]', 'a.jpg', 'image/jpeg', 'AAA')
+            . self::filePart($boundary, 'photos[]', 'b.jpg', 'image/jpeg', 'BBBB')
+            . self::filePart($boundary, 'avatar', 'me.png', 'image/png', 'PNG')
+            . "--{$boundary}--\r\n";
+
+        // Raw $_FILES shape: pivoted arrays for the bracketed field, scalar for
+        // the plain one.
+        [, $files] = EphpmClient::parseMultipart($body, $boundary);
+        self::assertSame(['a.jpg', 'b.jpg'], $files['photos']['name']);
+        self::assertSame([3, 4], $files['photos']['size']);
+        self::assertCount(2, $files['photos']['tmp_name']);
+        self::assertSame('me.png', $files['avatar']['name']);
+
+        // End to end: Symfony converts the pivoted shape into a list of
+        // UploadedFile (both files survive — not last-wins).
+        $request = EphpmClient::toSymfonyRequest(self::fakeEnvelope(
+            server: ['REQUEST_METHOD' => 'POST'],
+            headers: ['Content-Type' => "multipart/form-data; boundary={$boundary}"],
+            rawBody: $body,
+        ));
+
+        $photos = $request->files->get('photos');
+        self::assertIsArray($photos);
+        self::assertCount(2, $photos);
+        self::assertInstanceOf(UploadedFile::class, $photos[0]);
+        self::assertInstanceOf(UploadedFile::class, $photos[1]);
+        self::assertSame('a.jpg', $photos[0]->getClientOriginalName());
+        self::assertSame('b.jpg', $photos[1]->getClientOriginalName());
+        self::assertSame('AAA', \file_get_contents($photos[0]->getPathname()));
+        self::assertSame('BBBB', \file_get_contents($photos[1]->getPathname()));
+
+        $avatar = $request->files->get('avatar');
+        self::assertInstanceOf(UploadedFile::class, $avatar);
+        self::assertSame('me.png', $avatar->getClientOriginalName());
+
+        EphpmClient::cleanupRequestTempFiles();
+    }
+
+    /**
+     * One `multipart/form-data` file part (no closing boundary — the caller
+     * appends the terminating delimiter).
+     */
+    private static function filePart(
+        string $boundary,
+        string $name,
+        string $filename,
+        string $type,
+        string $content,
+    ): string {
+        return "--{$boundary}\r\n"
+            . "Content-Disposition: form-data; name=\"{$name}\"; filename=\"{$filename}\"\r\n"
+            . "Content-Type: {$type}\r\n"
+            . "\r\n"
+            . "{$content}\r\n";
+    }
+
     // -------------------- Response mapping (Octane -> send_response) ---------
 
     public function testTranslateResponseReturnsStatusHeadersBody(): void

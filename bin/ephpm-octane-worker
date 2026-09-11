@@ -7,7 +7,7 @@ declare(strict_types=1);
  * ephpm-octane-worker — Laravel Octane worker entrypoint for ePHPm worker mode.
  *
  * ePHPm launches this script for each persistent worker (point
- * `[php] worker_script` at it). It:
+ * `[php.worker] script` at it). It:
  *
  *   1. locates the project's Composer autoloader (upward search from CWD),
  *   2. locates the Laravel `bootstrap/app.php` (upward search, or EPHPM_APP_BASE),
