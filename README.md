@@ -57,7 +57,7 @@ php artisan octane:install
 
 Set the document root to Laravel's `public/` directory, switch on worker mode,
 and point ePHPm at the worker entrypoint in `ephpm.toml`. Note that
-`document_root` lives under `[server]`, and `worker_script` is resolved
+`document_root` lives under `[server]`, and `[php.worker] script` is resolved
 relative to the document root and **must be a file under it** (ePHPm's config
 validation enforces this). Laravel keeps `vendor/` outside `public/`, so copy
 the entrypoint into the document root first:
@@ -72,8 +72,16 @@ document_root = "public"          # Laravel's public/ directory
 
 [php]
 mode          = "worker"
-worker_script = "ephpm-octane-worker.php"   # relative to document_root
+# concurrency = 0                 # worker-thread pool size (0 = auto)
+
+[php.worker]
+script        = "ephpm-octane-worker.php"   # relative to document_root
 ```
+
+The worker knobs live in the `[php.worker]` table (`script`, `max_requests`,
+`boot_timeout`, `populate_superglobals`, `stream_threshold`); pool sizing is
+`[php] concurrency`. The old flat `worker_*` keys (`worker_script`,
+`worker_count`, …) were removed and are now a hard startup error.
 
 Then start the server:
 

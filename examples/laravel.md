@@ -24,12 +24,14 @@ document_root = "."               # the Laravel project root
 
 [php]
 mode          = "worker"
-worker_script = "vendor/bin/ephpm-octane-worker"
-worker_count  = 1                 # raise for more concurrency
+concurrency   = 1                 # worker-thread pool size; raise for more concurrency (0 = auto)
 # EPHPM_APP_BASE=/srv/app         # optional env: pin the app base (dir with bootstrap/app.php)
+
+[php.worker]
+script        = "vendor/bin/ephpm-octane-worker"
 ```
 
-`worker_script` must resolve **under** `document_root` (ePHPm rejects a script
+`[php.worker] script` must resolve **under** `document_root` (ePHPm rejects a script
 that escapes the root), so `document_root` is the project root — which contains
 `vendor/` — not `public/`. In worker mode every non-static request is routed to
 the worker entrypoint, which boots Laravel and lets *its* router handle the URL;
